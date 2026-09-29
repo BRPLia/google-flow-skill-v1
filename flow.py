@@ -15,11 +15,12 @@ Comandos
   python flow.py status
       Dice si ya hay sesion guardada.
 
-  python flow.py image --prompt "..." [--ratio 9:16] [--model "Nano Banana 2"]
+  python flow.py image --prompt "..." [--ratio 9:16] [--model "Nano Banana 2 Lite"]
                         [--image referencia.png] [--name escena1] [--out outputs]
       Genera UNA imagen (texto->imagen, o imagen+prompt->imagen si das --image).
 
   python flow.py video --prompt "..." [--ratio 9:16] [--model "Veo 3.1 - Lite"]
+                        [--duration 8s]
                         [--start frame.png] [--end frame_final.png]
                         [--name escena1] [--out outputs]
       Genera UN video. Sin --start = texto->video. Con --start = anima esa
@@ -31,8 +32,8 @@ Comandos
 
 Modelos validos
 ---------------
-  Imagen: "Nano Banana 2", "Nano Banana Pro", "Imagen 4"
-  Video : "Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality", "Omni Flash"
+  Imagen: "Nano Banana 2 Lite", "Nano Banana 2", "Nano Banana Pro", "Imagen 4"
+  Video : "Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality", "Omni 1.1 Flash"
   Ratios: "9:16", "16:9", "1:1", "4:3", "3:4"
 """
 import argparse
@@ -163,6 +164,8 @@ async def cmd_status(_args) -> int:
 # Generadores atomicos (asumen proyecto YA abierto)
 # ---------------------------------------------------------------------------
 async def _gen_image(prompt, ratio, model, count, image, out_path) -> str:
+    if count != 1:
+        raise ValueError("Esta CLI descarga una imagen por trabajo. Para un lote, usa varios jobs image con count=1.")
     await flow.select_image_mode(aspect_ratio=ratio, count=count, model=model)
     if image:
         await flow.upload_standalone_image(image)
@@ -172,17 +175,19 @@ async def _gen_image(prompt, ratio, model, count, image, out_path) -> str:
     return await flow.download_latest(out_path, resolution="1K", is_video=False)
 
 
-async def _gen_video(prompt, ratio, model, count, start, end, out_path) -> str:
+async def _gen_video(prompt, ratio, model, count, start, end, out_path, duration=None) -> str:
+    if count != 1:
+        raise ValueError("Esta CLI descarga un video por trabajo. Para un lote, usa varios jobs video con count=1.")
     if start and end:
-        await flow.select_video_mode(mode="fotogramas", model=model, aspect_ratio=ratio, count=count)
+        await flow.select_video_mode(mode="fotogramas", model=model, aspect_ratio=ratio, count=count, duration=duration)
         await flow.upload_frame(start, slot="initial")
         await asyncio.sleep(3)
         await flow.upload_frame(end, slot="final")
     elif start:
-        await flow.select_video_mode(mode="fotogramas", model=model, aspect_ratio=ratio, count=count)
+        await flow.select_video_mode(mode="fotogramas", model=model, aspect_ratio=ratio, count=count, duration=duration)
         await flow.upload_frame(start, slot="initial")
     else:
-        await flow.select_video_mode(mode="texto", model=model, aspect_ratio=ratio, count=count)
+        await flow.select_video_mode(mode="texto", model=model, aspect_ratio=ratio, count=count, duration=duration)
     pre = await flow.get_canvas_count()
     await flow.submit_prompt(prompt)
     await flow.wait_for_video(pre_submit_count=pre)
@@ -219,7 +224,7 @@ async def cmd_video(args) -> int:
     await flow.startup()
     try:
         await flow.create_project()
-        saved = await _gen_video(args.prompt, args.ratio, args.model, args.count, args.start, args.end, out_path)
+        saved = await _gen_video(args.prompt, args.ratio, args.model, args.count, args.start, args.end, out_path, args.duration)
         print(f"OK video -> {saved}")
         return 0
     finally:
@@ -234,8 +239,9 @@ async def cmd_batch(args) -> int:
     data = json.loads(Path(args.jobfile).read_text(encoding="utf-8"))
     defaults = data.get("defaults", {})
     d_ratio = defaults.get("ratio", "9:16")
-    d_img_model = defaults.get("image_model", "Nano Banana 2")
+    d_img_model = defaults.get("image_model", "Nano Banana 2 Lite")
     d_vid_model = defaults.get("video_model", "Veo 3.1 - Lite")
+    d_vid_duration = defaults.get("video_duration")
     jobs = data.get("jobs", [])
 
     # Cada proyecto va a su propia subcarpeta: facil de revisar y de borrar.
@@ -269,6 +275,7 @@ async def cmd_batch(args) -> int:
                         int(job.get("count", 1)),
                         _resolve_asset(project_dir, job.get("start")),
                         _resolve_asset(project_dir, job.get("end")), out_path,
+                        job.get("duration", d_vid_duration),
                     )
                 else:
                     print(f"  tipo desconocido '{jtype}', saltando.")
@@ -327,7 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
     pi = sub.add_parser("image", help="Generar una imagen.")
     pi.add_argument("--prompt", required=True)
     pi.add_argument("--ratio", default="9:16")
-    pi.add_argument("--model", default="Nano Banana 2")
+    pi.add_argument("--model", default="Nano Banana 2 Lite")
     pi.add_argument("--count", type=int, default=1)
     pi.add_argument("--image", default=None, help="Imagen de referencia para editar.")
     pi.add_argument("--name", default=None)
@@ -338,6 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--ratio", default="9:16")
     pv.add_argument("--model", default="Veo 3.1 - Lite")
     pv.add_argument("--count", type=int, default=1)
+    pv.add_argument("--duration", default=None, help="Duracion del clip, por ejemplo 8s (si el modelo la admite).")
     pv.add_argument("--start", default=None, help="Fotograma inicial (imagen).")
     pv.add_argument("--end", default=None, help="Fotograma final (imagen).")
     pv.add_argument("--name", default=None)

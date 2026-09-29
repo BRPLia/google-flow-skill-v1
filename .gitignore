@@ -7,9 +7,11 @@ __pycache__/
 
 # Capturas de depuracion
 _debug/
+scratch/
 
 # Guion privado del video (no publicar)
 GUIA_VIDEO.md
+TUTORIAL_V2.md
 
 # NUNCA subir tu sesion de Google (cookies) ni tus resultados generados.
 session/*

@@ -6,9 +6,9 @@ Pensado para que lo ejecute el propio agente:  python setup.py
 
 Hace:
   1. pip install -r requirements.txt
-  2. playwright install chromium
 
 NO hace login (eso requiere TU cuenta de Google). Al final te indica el paso.
+Google Chrome se instala por separado; el proveedor abre el canal "chrome".
 Solo usa libreria estandar para poder correr antes de instalar nada.
 """
 import subprocess
@@ -27,7 +27,6 @@ def main() -> int:
     print("=== Instalacion Google Flow Skill ===")
     steps = [
         [sys.executable, "-m", "pip", "install", "-r", str(BASE / "requirements.txt")],
-        [sys.executable, "-m", "playwright", "install", "chromium"],
     ]
     for cmd in steps:
         code = run(cmd)
@@ -36,6 +35,7 @@ def main() -> int:
             return code
 
     print("\nOK: dependencias instaladas.")
+    print("Requisito adicional: Google Chrome instalado en este equipo.")
     print("Siguiente paso (una sola vez): python flow.py login")
     print("\n(psst: prueba 'python flow.py nuro')  --  hecho por NURO para BRPL")
     return 0

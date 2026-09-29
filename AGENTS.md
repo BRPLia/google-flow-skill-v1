@@ -1,33 +1,12 @@
-# AGENTS.md - Google Flow Skill
+# AGENTS.md — Google Flow Skill v2
 
-Eres un agente con UNA capacidad en esta carpeta: **manejar Google Flow** (labs.google)
-para generar y descargar imagenes y videos con una sola CLI: `flow.py`.
+Tu tarea en esta carpeta es manejar Google Flow desde la CLI `flow.py`. Lee `SKILL.md` antes de actuar. Para uso normal, trata `flow_provider/` como motor interno y evita escribir Playwright ad hoc.
 
-## Lo que debes saber al entrar
-1. Lee `SKILL.md` (es tu manual completo). No leas dentro de `flow_provider/`: es motor interno.
-2. **Instalate tu solo** la primera vez: corre `python setup.py` (instala dependencias y el
-   navegador). No le pidas al usuario que lo haga; tu tienes terminal.
-3. Luego `python flow.py status`. Si dice "SIN SESION", corre `python flow.py login` y pide al
-   usuario que inicie sesion en la ventana de Chrome que se abre (eso si lo hace el humano).
-4. Tu rol: interpretar lo que pide el usuario y traducirlo a comandos `python flow.py ...`.
-   **No escribes Playwright a mano.**
+1. Comprueba que ejecutas en la máquina del usuario con Chrome y escritorio accesible. Un sandbox puede ocultar la ventana, incluso con `FLOW_HEADLESS=false`.
+2. Respeta las reglas de terminal del workspace. Ejecuta `python setup.py` si faltan dependencias; `python flow.py status` comprueba el perfil local; `python flow.py login` permite que el humano inicie sesión. Nunca solicites contraseñas.
+3. Traduce la petición a uno o más trabajos. Para dos o más imágenes o videos, crea un JSON como `examples/lote_imagenes.json` y ejecuta `python flow.py batch archivo.json`.
+4. Cada trabajo descarga un archivo; usa nombres únicos y `count: 1`. Revisa `outputs/<project>/batch_report.json` y confirma que los archivos existen antes de informar éxito.
+5. Para contenido de YouTube, explica que esta CLI produce imágenes y clips. Remotion, voz, subtítulos y montaje final requieren otro proyecto.
+6. No compartas ni subas `session/`. No limpies `outputs/` sin una petición explícita.
 
-## Comandos
-```
-python flow.py login                         # una vez: guarda la sesion permanente
-python flow.py status                        # ver si hay sesion
-python flow.py image --prompt "..." --name escena1
-python flow.py video --prompt "..." --name escena1
-python flow.py video --prompt "..." --start outputs/escena1.png --name escena1_vid
-python flow.py batch guion.json              # varios trabajos EN ORDEN
-python flow.py clean nombre_proyecto         # borrar resultados de un proyecto
-```
-
-## Reglas
-- Para 2+ trabajos: arma un `guion.json` (formato en `SKILL.md` / `examples/`) y usa `batch`.
-  El batch se guarda en `outputs/<project>/`. Para encadenar img->video dentro de un batch,
-  el `start` del video puede ser solo el `name` del job de imagen anterior.
-- Si una escena trae prompt de imagen Y de video: genera la imagen y usala como `--start` del video.
-- La narracion/voz NO va a Flow. Solo imagen y video.
-- NO reanuda proyectos de Flow: cada corrida es un proyecto nuevo; el encadenamiento es por archivos.
-- Sé ordenado y honesto sobre los limites (ver seccion 7 de `SKILL.md`).
+Modelos disponibles en el proveedor actual: imagen `Nano Banana 2 Lite`, `Nano Banana 2`, `Nano Banana Pro`, `Imagen 4`; video `Veo 3.1 - Lite`, `Veo 3.1 - Fast`, `Veo 3.1 - Quality`, `Omni 1.1 Flash`. La disponibilidad depende de Flow y de la cuenta. Los medios consumen créditos.

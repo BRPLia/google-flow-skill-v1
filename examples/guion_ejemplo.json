@@ -2,7 +2,7 @@
   "project": "demo_flow",
   "defaults": {
     "ratio": "9:16",
-    "image_model": "Nano Banana 2",
+    "image_model": "Nano Banana 2 Lite",
     "video_model": "Veo 3.1 - Lite"
   },
   "jobs": [
@@ -15,11 +15,13 @@
       "type": "video",
       "name": "escena1_video",
       "start": "escena1_frame",
+      "duration": "8s",
       "prompt": "The astronaut slowly turns toward the camera as wind blows red dust, subtle motion"
     },
     {
       "type": "video",
       "name": "escena2_video",
+      "duration": "8s",
       "prompt": "Wide cinematic shot of two moons rising over the red desert horizon, slow pan"
     }
   ]

@@ -1,0 +1,27 @@
+{
+  "project": "demo_lote_imagenes",
+  "defaults": {
+    "ratio": "9:16",
+    "image_model": "Nano Banana 2 Lite"
+  },
+  "jobs": [
+    {
+      "type": "image",
+      "name": "flor_roja",
+      "count": 1,
+      "prompt": "One red paper flower on a plain wooden table, soft daylight, vertical composition, no text"
+    },
+    {
+      "type": "image",
+      "name": "flor_amarilla",
+      "count": 1,
+      "prompt": "One yellow paper flower on a plain wooden table, soft daylight, vertical composition, no text"
+    },
+    {
+      "type": "image",
+      "name": "flor_azul",
+      "count": 1,
+      "prompt": "One blue paper flower on a plain wooden table, soft daylight, vertical composition, no text"
+    }
+  ]
+}
