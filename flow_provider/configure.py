@@ -166,9 +166,9 @@ async def select_image_mode(
     await page.wait_for_timeout(300)
 
 
-async def _select_radio(panel, name: str) -> None:
+async def _select_radio(panel, name: str | re.Pattern[str]) -> None:
     from playwright.async_api import expect
-    control = panel.get_by_role("radio", name=name, exact=True)
+    control = panel.get_by_role("radio", name=name, exact=isinstance(name, str))
     await control.wait_for(state="visible", timeout=10_000)
     if await control.get_attribute("aria-checked") != "true":
         await control.click()
@@ -183,7 +183,7 @@ async def select_video_mode(
     from playwright.async_api import expect
     page = await get_page()
     panel = await _open_settings(page)
-    await _select_radio(panel, "Video")
+    await _select_radio(panel, re.compile(r"^V[ií]deo$", re.I))
     if mode in ("fotogramas", "ingredientes"):
         await _select_radio(panel, "Fotogramas" if mode == "fotogramas" else "Ingredientes")
     elif mode != "texto":

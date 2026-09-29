@@ -1,0 +1,27 @@
+{
+  "project": "flores_artesanales",
+  "defaults": {
+    "ratio": "9:16",
+    "image_model": "Nano Banana 2 Lite"
+  },
+  "jobs": [
+    {
+      "type": "image",
+      "name": "flor_roja",
+      "count": 1,
+      "prompt": "A single handmade red paper flower with visible crafted petals, on a simple wooden table, soft natural daylight, photorealistic product photo, vertical composition, no people, no text"
+    },
+    {
+      "type": "image",
+      "name": "flor_amarilla",
+      "count": 1,
+      "prompt": "A single handmade yellow paper flower with visible crafted petals and green leaves, on a simple wooden table, soft natural daylight, photorealistic product photo, vertical composition, no people, no text"
+    },
+    {
+      "type": "image",
+      "name": "flor_azul",
+      "count": 1,
+      "prompt": "A single handmade blue paper flower with visible crafted petals, on a simple wooden table, soft natural daylight, photorealistic product photo, vertical composition, no people, no text"
+    }
+  ]
+}

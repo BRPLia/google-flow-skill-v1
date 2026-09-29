@@ -13,7 +13,7 @@ from . import settings
 _playwright: Playwright | None = None
 _context: BrowserContext | None = None
 _page: Page | None = None
-SEL_SETTINGS_TRIGGER = 'button[aria-label="Botón de configuración"]'
+SEL_SETTINGS_TRIGGER = 'button[aria-label="Botón de configuración"], button[aria-label="Activador de ajustes"]'
 _lock = asyncio.Lock()
 _last_project_url: str | None = None
 

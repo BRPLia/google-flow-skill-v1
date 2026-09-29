@@ -1,0 +1,17 @@
+{
+  "project": "animar_flor_amarilla",
+  "defaults": {
+    "ratio": "9:16",
+    "video_model": "Omni 1.1 Flash",
+    "video_duration": "8s"
+  },
+  "jobs": [
+    {
+      "type": "video",
+      "name": "flor_amarilla_animada",
+      "count": 1,
+      "start": "outputs/flores_artesanales/flor_amarilla.png",
+      "prompt": "Animate this handmade yellow paper flower with a gentle breeze. Petals and leaves move softly while the camera stays steady. Preserve the original flower, table, lighting, and vertical composition. No people, no text."
+    }
+  ]
+}

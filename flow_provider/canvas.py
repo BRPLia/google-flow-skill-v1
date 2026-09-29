@@ -300,7 +300,7 @@ async def upload_standalone_image(image_path: str) -> None:
     # 4. Click en Cargar medios / Subir imagen
     import re
     upload_btn = page.locator(SEL_PANEL_RECURSOS).first.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Upload media|Subir imagen)", re.IGNORECASE)
+        has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen)", re.IGNORECASE)
     ).first
     
     if await upload_btn.count() == 0:
@@ -341,32 +341,45 @@ async def get_canvas_count() -> int:
     return await page.locator('flow-grid-tile-container, flow-tile-container, [aria-roledescription="draggable"]').count()
 
 
-SEL_SLOTS_INICIAR = 'div:text-is("Iniciar")'
-SEL_SLOTS_FIN = 'div:text-is("Fin")'
+SEL_SLOTS_INICIAR = 'button.empty-chip:has-text("Inicio"), div:text-is("Iniciar")'
+SEL_SLOTS_FIN = 'button.empty-chip:has-text("Fin"), div:text-is("Fin")'
 SEL_UPLOAD_BTN = ':text-is("Subir imagen")'
-SEL_SLOT_LOADED = 'img[alt*="contenido multimedia"]'
+SEL_SLOT_LOADED = '.ingredient-bar-container img'
 
 async def upload_frame(file_path: str, slot: str = "initial") -> None:
     """Sube un frame para modo Fotogramas. slot: 'initial' o 'final'."""
     page = await get_page()
 
-    await page.wait_for_selector(SEL_SLOTS_INICIAR, state="visible", timeout=10000)
     target_slot = page.locator(SEL_SLOTS_INICIAR) if slot == "initial" else page.locator(SEL_SLOTS_FIN)
+    await target_slot.first.wait_for(state="visible", timeout=10000)
 
     initial_count = await page.locator(SEL_SLOT_LOADED).count()
-    await target_slot.click()
+    await target_slot.first.click()
     await page.wait_for_timeout(2000)
 
     async with page.expect_file_chooser(timeout=5000) as fc_info:
         import re
-        upload_btn = page.locator('button, [role="button"], div').filter(
-            has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Upload media|Subir imagen)", re.IGNORECASE)
+        upload_btn = page.locator('button, [role="button"]').filter(
+            has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen)", re.IGNORECASE)
         ).first
         if await upload_btn.count() == 0:
             raise Exception("Botón de subida ('Cargar medios' / 'Upload') no encontrado para el slot.")
         await upload_btn.click(force=True)
     file_chooser = await fc_info.value
     await file_chooser.set_files(file_path)
+
+    # La vista previa nueva exige confirmar antes de adjuntar el fotograma.
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+    add_btn = page.locator('button, [role="button"]').filter(
+        has_text=re.compile(r"(Añadir a petición|Agregar a la instrucción|Add to prompt|Add to instruction)", re.IGNORECASE)
+    ).first
+    try:
+        await add_btn.wait_for(state="visible", timeout=8_000)
+    except PlaywrightTimeoutError:
+        pass  # Algunas versiones adjuntan el archivo sin vista previa.
+    else:
+        await add_btn.click()
+        await add_btn.wait_for(state="hidden", timeout=15_000)
 
     await page.wait_for_function(
         f"""() => {{
@@ -382,11 +395,11 @@ async def select_frame_from_project(uuid: str, slot: str = "initial") -> None:
     """Selecciona un frame existente del proyecto para modo Fotogramas."""
     page = await get_page()
     
-    await page.wait_for_selector(SEL_SLOTS_INICIAR, state="visible", timeout=10000)
     target_slot = page.locator(SEL_SLOTS_INICIAR) if slot == "initial" else page.locator(SEL_SLOTS_FIN)
+    await target_slot.first.wait_for(state="visible", timeout=10000)
     
     initial_count = await page.locator(SEL_SLOT_LOADED).count()
-    await target_slot.click()
+    await target_slot.first.click()
     await page.wait_for_timeout(2000)
     
     # Buscar la imagen en el dropup por UUID dentro del diálogo modal
@@ -401,7 +414,7 @@ async def select_frame_from_project(uuid: str, slot: str = "initial") -> None:
     # Confirmar selección con el botón 'Agregar a la instrucción'
     import re
     add_btn = page.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Agregar a la instrucción|Add to instruction|Add to prompt)", re.IGNORECASE)
+        has_text=re.compile(r"(Añadir a petición|Agregar a la instrucción|Add to instruction|Add to prompt)", re.IGNORECASE)
     ).first
     if await add_btn.count() > 0:
         await add_btn.click()

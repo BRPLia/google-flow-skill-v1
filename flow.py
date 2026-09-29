@@ -39,6 +39,7 @@ Modelos validos
 import argparse
 import asyncio
 import json
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -112,7 +113,7 @@ async def cmd_login(_args) -> int:
     print("=== LOGIN GOOGLE FLOW ===")
     print(f"Perfil persistente: {profile}")
     print("Se abrira Chrome. Inicia sesion con tu cuenta de Google.")
-    print("Cuando veas el boton 'Proyecto nuevo', el script guarda y cierra solo.")
+    print("Cuando aparezca el botón de proyecto nuevo, el script guarda y cierra solo.")
     print()
 
     async with async_playwright() as p:
@@ -132,7 +133,9 @@ async def cmd_login(_args) -> int:
             await page.wait_for_timeout(3000)
             url = page.url
             try:
-                ready = await page.locator('button:has-text("Proyecto nuevo")').count() > 0
+                ready = await page.get_by_role(
+                    "button", name=re.compile(r"Proyecto nuevo|Nuevo proyecto|New project", re.I)
+                ).count() > 0
             except Exception:
                 ready = False
             if ready and "accounts.google" not in url:
@@ -284,6 +287,16 @@ async def cmd_batch(args) -> int:
                 results.append({"name": name, "type": jtype, "file": saved, "ok": True})
             except Exception as e:
                 print(f"  ERROR en '{name}': {e}")
+                debug_dir = project_dir / "_debug"
+                try:
+                    debug_dir.mkdir(exist_ok=True)
+                    page = await flow.get_page()
+                    debug_name = f"{i:02d}_{_safe(name)}"
+                    await page.screenshot(path=str(debug_dir / f"{debug_name}.png"))
+                    (debug_dir / f"{debug_name}.html").write_text(await page.content(), encoding="utf-8")
+                    print(f"  Diagnóstico guardado en {debug_dir}")
+                except Exception as debug_error:
+                    print(f"  No se pudo guardar el diagnóstico: {debug_error}")
                 results.append({"name": name, "type": jtype, "ok": False, "error": str(e)})
     finally:
         await flow.shutdown()

@@ -1,12 +1,13 @@
 """
 Creación y navegación de proyectos en Google Flow.
 """
+import re
+from pathlib import Path
+
 from .browser import get_page, SEL_SETTINGS_TRIGGER
 
 FLOW_BASE_URL = "https://labs.google/fx/es-419/tools/flow"
-
-
-import re
+NEW_PROJECT_BUTTON = re.compile(r"Proyecto nuevo|Nuevo proyecto|New project", re.I)
 
 async def _dismiss_fullscreen_viewer(page) -> None:
     """Presiona Escape para cerrar cualquier visor/lightbox que se haya abierto accidentalmente."""
@@ -60,6 +61,21 @@ async def ensure_all_media_tab(page) -> None:
         pass
 
 
+async def _wait_for_settings(page) -> None:
+    try:
+        await page.locator(SEL_SETTINGS_TRIGGER).first.wait_for(state="visible", timeout=15_000)
+    except Exception:
+        debug_dir = Path(__file__).resolve().parent.parent / "scratch"
+        debug_dir.mkdir(exist_ok=True)
+        try:
+            await page.screenshot(path=str(debug_dir / "project_settings_error.png"))
+            (debug_dir / "project_settings_error.html").write_text(await page.content(), encoding="utf-8")
+            print(f"  [flow] Captura y HTML de diagnóstico en {debug_dir}")
+        except Exception as debug_error:
+            print(f"  [flow] No se pudo guardar el diagnóstico: {debug_error}")
+        raise
+
+
 async def create_project() -> tuple[str, str]:
     """Crea un proyecto nuevo en Flow. Retorna (project_uuid, project_url).
     Debe llamarse mientras se sostiene get_lock().
@@ -70,10 +86,10 @@ async def create_project() -> tuple[str, str]:
 
     await _await_user_dismisses_panel(page)
 
-    # Click en Proyecto nuevo
-    await page.wait_for_selector('button:has-text("Proyecto nuevo")', timeout=45000)
-    new_btn = page.locator('button:has-text("Proyecto nuevo")')
-    await new_btn.first.click()
+    # La etiqueta cambia según idioma y versión de Flow.
+    new_btn = page.get_by_role("button", name=NEW_PROJECT_BUTTON).first
+    await new_btn.wait_for(state="visible", timeout=45_000)
+    await new_btn.click()
 
     # Esperar URL de proyecto
     await page.wait_for_url("**/project/**", timeout=15000)
@@ -82,7 +98,7 @@ async def create_project() -> tuple[str, str]:
 
     # Esperar SPA render — CRÍTICO sin esto pantalla negra
     await page.wait_for_timeout(5000)
-    await page.wait_for_selector(SEL_SETTINGS_TRIGGER, timeout=45000)
+    await _wait_for_settings(page)
 
     await _dismiss_fullscreen_viewer(page)
     await ensure_all_media_tab(page)
@@ -97,9 +113,8 @@ async def navigate_to_project(project_uuid: str) -> None:
         await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_timeout(5000)
         await _await_user_dismisses_panel(page)
-        await page.wait_for_selector(SEL_SETTINGS_TRIGGER, timeout=45000)
+        await _wait_for_settings(page)
 
     # Siempre al entrar al proyecto: cerrar visores accidentales y asegurar pestaña correcta
     await _dismiss_fullscreen_viewer(page)
     await ensure_all_media_tab(page)
-
