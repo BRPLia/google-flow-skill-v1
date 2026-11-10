@@ -305,7 +305,7 @@ async def upload_standalone_image(image_path: str) -> str:
     # 4. Click en Cargar medios / Subir imagen
     import re
     upload_btn = page.locator(SEL_PANEL_RECURSOS).first.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen)", re.IGNORECASE)
+        has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen|Enviar mídia|Fazer upload|Upload)", re.IGNORECASE)
     ).first
     
     if await upload_btn.count() == 0:
@@ -383,7 +383,7 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
     async with page.expect_file_chooser(timeout=5000) as fc_info:
         import re
         upload_btn = page.locator('button, [role="button"]').filter(
-            has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen)", re.IGNORECASE)
+            has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen|Enviar mídia|Fazer upload|Upload)", re.IGNORECASE)
         ).first
         if await upload_btn.count() == 0:
             raise Exception("Botón de subida ('Cargar medios' / 'Upload') no encontrado para el slot.")

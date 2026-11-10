@@ -302,6 +302,12 @@ async def cmd_batch(args) -> int:
             print(f"\n--- [{i}/{len(jobs)}] {jtype} :: {name} ---")
             job_state={'submitted':False}
             try:
+                page = await flow.get_page()
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(300)
+            except Exception:
+                pass
+            try:
                 if jtype == "image":
                     out_path = _out_path(project_dir, name, "png")
                     saved = await _gen_image(
@@ -325,6 +331,11 @@ async def cmd_batch(args) -> int:
                 results.append({"name": name, "type": jtype, "file": saved, "ok": True, **job_state})
             except Exception as e:
                 print(f"  ERROR en '{name}': {e}")
+                try:
+                    page = await flow.get_page()
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
                 debug_dir = project_dir / "_debug"
                 try:
                     debug_dir.mkdir(exist_ok=True)
