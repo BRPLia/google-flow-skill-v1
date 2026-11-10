@@ -415,8 +415,12 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
             break
     if uploaded_key is None:
         raise RuntimeError('Uploaded frame card missing; generation stopped')
-    picker_image=page.locator(f'flow-add-menu-asset-item img[src*="{uploaded_key}"]')
-    await picker_image.first.wait_for(state='visible',timeout=20_000)
+    picker_image = page.locator(f'flow-add-menu-asset-item img[src*="{uploaded_key}"]').first
+    try:
+        await picker_image.wait_for(state='visible', timeout=8_000)
+    except Exception:
+        picker_image = page.locator('flow-add-menu-asset-item img, flow-add-menu-asset-item').first
+        await picker_image.wait_for(state='visible', timeout=15_000)
     preview=page.locator('img.detail-preview-image').first
     if not await preview.count() or await preview.evaluate(MEDIA_KEY_JS)!=uploaded_key:
         await picker_image.first.click()
