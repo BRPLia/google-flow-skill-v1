@@ -421,18 +421,20 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
         return image && image.complete && image.naturalWidth>0 && key(image)===expected;
     }""",arg=uploaded_key,timeout=20_000)
 
-    # La vista previa nueva exige confirmar antes de adjuntar el fotograma.
-    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-    add_btn = page.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Añadir a petición|Agregar a la instrucción|Add to prompt|Add to instruction|Adicionar ao comando|Adicionar à instrução|Adicionar)", re.IGNORECASE)
-    ).first
+    # La vista previa exige confirmar para adjuntar el fotograma.
+    add_btn = page.locator('button.detail-add-to-prompt-btn, button:has-text("Incluir no comando"), button:has-text("Adicionar ao comando"), button:has-text("Agregar a la instrucción"), button:has-text("Add to prompt")').first
     try:
-        await add_btn.wait_for(state="visible", timeout=8_000)
-    except PlaywrightTimeoutError:
-        pass  # Algunas versiones adjuntan el archivo sin vista previa.
-    else:
-        await add_btn.click()
+        await add_btn.wait_for(state="visible", timeout=20_000)
+        for _ in range(40):
+            disabled = await add_btn.get_attribute("disabled")
+            cls = await add_btn.get_attribute("class") or ""
+            if not disabled and "disabled" not in cls:
+                break
+            await page.wait_for_timeout(500)
+        await add_btn.click(force=True)
         await add_btn.wait_for(state="hidden", timeout=15_000)
+    except Exception as e:
+        print(f"    [frame] Nota sobre add_btn: {e}")
 
     image = target.locator('img, button.chip-container').first
     await image.wait_for(state='visible', timeout=60_000)

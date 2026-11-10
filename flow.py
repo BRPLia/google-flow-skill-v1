@@ -224,6 +224,26 @@ async def _gen_video(prompt, ratio, model, count, start, end, out_path, duration
     return await flow.download_latest(out_path, resolution="720p", is_video=True,asset_id=asset_id)
 
 
+async def get_or_create_project(project_dir: Path) -> tuple[str, str]:
+    meta_file = project_dir / "provider_project.json"
+    if meta_file.exists():
+        try:
+            saved = json.loads(meta_file.read_text(encoding="utf-8"))
+            uuid = saved.get("project_uuid")
+            url = saved.get("project_url")
+            if uuid:
+                print(f"  [flow] Reutilizando proyecto existente en Flow: {uuid}")
+                await flow.navigate_to_project(uuid)
+                return uuid, url
+        except Exception as e:
+            print(f"  [flow] No se pudo reanudar proyecto ({e}), creando uno nuevo...")
+
+    print("  [flow] Creando nuevo proyecto en Flow...")
+    uuid, url = await flow.create_project()
+    meta_file.write_text(json.dumps({"project_uuid": uuid, "project_url": url}), encoding="utf-8")
+    return uuid, url
+
+
 # ---------------------------------------------------------------------------
 # Comandos de generacion
 # ---------------------------------------------------------------------------
@@ -292,8 +312,7 @@ async def cmd_batch(args) -> int:
     report=project_dir/'batch_report.json'
     await flow.startup()
     try:
-        project_uuid,project_url=await flow.create_project()
-        (project_dir/'provider_project.json').write_text(json.dumps({'project_uuid':project_uuid,'project_url':project_url}),encoding='utf8')
+        project_uuid, project_url = await get_or_create_project(project_dir)
         for i, job in enumerate(jobs, 1):
             jtype = job.get("type", "image")
             name = job.get("name") or f"{jtype}_{i:02d}"
