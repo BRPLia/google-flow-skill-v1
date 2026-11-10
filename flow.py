@@ -135,8 +135,8 @@ async def cmd_login(_args) -> int:
             url = page.url
             try:
                 ready = await page.get_by_role(
-                    "button", name=re.compile(r"Proyecto nuevo|Nuevo proyecto|New project", re.I)
-                ).count() > 0
+                    "button", name=re.compile(r"Proyecto nuevo|Nuevo proyecto|New project|Novo projeto", re.I)
+                ).count() > 0 or await page.locator("button.new-project-button").count() > 0
             except Exception:
                 ready = False
             if ready and "accounts.google" not in url:
