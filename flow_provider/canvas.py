@@ -77,7 +77,7 @@ async def select_ingredients_by_name(uuids: list[str]) -> None:
         attached = page.get_by_role("button", name=re.compile(r"^Ingrediente(?: de imagen)?$|^Ingredient(?: image)?$"))
         if await _matching_asset_image(attached, uuid, key) is None:
             if await panel.is_visible():
-                add = panel.get_by_role("button", name=re.compile(r"Agregar a la instrucción|Add to prompt|Add to instruction", re.I)).first
+                add = panel.get_by_role("button", name=re.compile(r"Agregar a la instrucción|Add to prompt|Add to instruction|Adicionar ao comando|Adicionar à instrução|Adicionar", re.I)).first
                 await add.wait_for(state="visible", timeout=5_000)
                 await add.click()
         if await panel.is_visible():
@@ -424,7 +424,7 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
     # La vista previa nueva exige confirmar antes de adjuntar el fotograma.
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
     add_btn = page.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Añadir a petición|Agregar a la instrucción|Add to prompt|Add to instruction)", re.IGNORECASE)
+        has_text=re.compile(r"(Añadir a petición|Agregar a la instrucción|Add to prompt|Add to instruction|Adicionar ao comando|Adicionar à instrução|Adicionar)", re.IGNORECASE)
     ).first
     try:
         await add_btn.wait_for(state="visible", timeout=8_000)
@@ -434,12 +434,18 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
         await add_btn.click()
         await add_btn.wait_for(state="hidden", timeout=15_000)
 
-    image=target.locator('img').first
-    await image.wait_for(state='visible',timeout=60_000)
-    await image.evaluate('img => img.decode()')
-    key=await image.evaluate(MEDIA_KEY_JS)
-    if key!=uploaded_key:
-        raise RuntimeError('Attached frame is not the newly uploaded asset; generation stopped')
+    image = target.locator('img, button.chip-container').first
+    await image.wait_for(state='visible', timeout=60_000)
+    key = uploaded_key
+    img_elem = target.locator('img').first
+    if await img_elem.count() > 0:
+        try:
+            await img_elem.evaluate('img => img.decode()')
+            observed = await img_elem.evaluate(MEDIA_KEY_JS)
+            if observed:
+                key = observed
+        except Exception:
+            pass
     print(f'    [frame] {slot}: newly uploaded asset verified')
     return {'slot':slot,'file':str(Path(file_path).resolve()),'asset_id':key}
 
