@@ -1,6 +1,6 @@
 ---
 name: google-flow
-version: 2.0.2
+version: 2.0.3
 description: Controla Google Flow desde un agente de IA con terminal y Chrome local. Genera y descarga imágenes o videos individuales y por lotes sin copiar prompts manualmente.
 ---
 
@@ -40,7 +40,7 @@ python flow.py login
 | Interpolar inicio y fin | `python flow.py video --prompt "..." --start inicio.png --end fin.png --name nombre` |
 | Dos o más entregables | Construye un JSON y ejecuta `python flow.py batch archivo.json` |
 
-Opciones: `--ratio` (por defecto `9:16`), `--model`, `--out`, `--name`; video admite `--duration 4s` o `--duration 8s` si el modelo ofrece esa duración. Modelos reconocidos por el proveedor actual: imagen `Nano Banana 2 Lite`, `Nano Banana 2`, `Nano Banana Pro`, `Imagen 4`; video `Veo 3.1 - Lite`, `Veo 3.1 - Fast`, `Veo 3.1 - Quality`, `Omni 1.1 Flash`. La disponibilidad real depende de Flow y de la cuenta.
+Opciones: `--ratio` (por defecto `9:16`), `--model`, `--out`, `--name`; video admite `--duration` (por ejemplo `8s`) con los modelos Omni: `Omni 1.2 Flash` usa un deslizador y cobra por segundo; Veo no deja elegir duración. Modelos reconocidos por el proveedor actual: imagen `Nano Banana 2 Lite`, `Nano Banana 2.1`, `Nano Banana Pro`; video `Omni 1.2 Flash`, `Veo 3.1 - Lite`. Flow retira el 5 de diciembre de 2026 `Omni 1.1 Flash`, `Veo 3.1 - Fast` y `Veo 3.1 - Quality`; `Nano Banana 2` e `Imagen 4` ya no existen (pedir `Nano Banana 2` selecciona la 2.1). La disponibilidad real depende de Flow y de la cuenta.
 
 Cada trabajo descarga **un archivo**. Para varias variantes o imágenes por lotes, crea varios `jobs` con nombres distintos y `count: 1`; `count > 1` se rechaza para evitar perder resultados.
 

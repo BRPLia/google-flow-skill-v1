@@ -32,8 +32,8 @@ Comandos
 
 Modelos validos
 ---------------
-  Imagen: "Nano Banana 2 Lite", "Nano Banana 2", "Nano Banana Pro", "Imagen 4"
-  Video : "Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality", "Omni 1.1 Flash"
+  Imagen: "Nano Banana 2 Lite", "Nano Banana 2.1", "Nano Banana Pro"
+  Video : "Veo 3.1 - Lite", "Omni 1.2 Flash"
   Ratios: "9:16", "16:9", "1:1", "4:3", "3:4"
 """
 import argparse

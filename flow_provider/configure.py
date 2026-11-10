@@ -129,6 +129,8 @@ async def select_image_mode(
         current_text = await model_btn.inner_text()
         # Si el modelo ya está activo, no tocar el submenú
         target_model = "Nano Banana 2 Lite" if model.lower() == "nano banan 2 lite" else model
+        if target_model == "Nano Banana 2":  # Flow lo reemplazó por la 2.1
+            target_model = "Nano Banana 2.1"
         if _image_model_name(current_text) == _image_model_name(target_model):
             print(f"    [config 4/5] Modelo ya activo: {current_text.strip()}")
         else:
@@ -175,6 +177,21 @@ async def _select_radio(panel, name: str | re.Pattern[str]) -> None:
     await expect(control).to_have_attribute("aria-checked", "true", timeout=5_000)
 
 
+async def _select_duration(panel, seconds: str) -> None:
+    """Omni 1.1 ofrece botones (4/6/8/10 s); Omni 1.2 un deslizador «Longitud»."""
+    slider = panel.locator('input[type="range"][aria-label="Longitud"]')
+    if not await slider.count():
+        await _select_radio(panel, f"{seconds} s")
+        return
+    shown = re.compile(rf"Longitud\s*{seconds}\s*s(?!\w)")
+    for step in range(int(await slider.get_attribute("min")), int(await slider.get_attribute("max")) + 1):
+        if shown.search(await panel.inner_text()):
+            return
+        await slider.fill(str(step))
+    if not shown.search(await panel.inner_text()):
+        raise ValueError(f"El modelo no ofrece clips de {seconds} s.")
+
+
 async def select_video_mode(
     aspect_ratio: str = "9:16", count: int = 1,
     mode: str = "fotogramas", model: str = "Veo 3.1 - Lite",
@@ -189,11 +206,13 @@ async def select_video_mode(
     elif mode != "texto":
         raise ValueError(f"Modo de video desconocido: {mode}")
     trigger = panel.get_by_role("button", name="Seleccionar familia de modelos", exact=True)
-    target = "Omni 1.1 Flash" if model in ("Omni Flash", "Omni 1.1 - Flash") else model
+    target = "Omni 1.2 Flash" if model in ("Omni Flash", "Omni 1.2 - Flash") else model
     pattern = re.compile(r"^\s*" + re.escape(target) + r"\s*(?:arrow_drop_down)?\s*$")
     if not pattern.fullmatch(await trigger.inner_text()):
         await trigger.click()
-        await page.get_by_role("menuitem", name=target, exact=True).click(timeout=8_000)
+        # Los modelos por retirarse llevan un aviso dentro del nombre de la opción.
+        await page.get_by_role("menuitem", name=re.compile(
+            r"^\s*" + re.escape(target) + r"(?:\s+Dejará de estar disponible.*)?\s*$")).click(timeout=8_000)
     await expect(trigger).to_have_text(pattern, timeout=8_000)
     await _select_radio(panel, aspect_ratio)
     await _select_radio(panel, f"x{count}")
@@ -201,6 +220,6 @@ async def select_video_mode(
         seconds = re.fullmatch(r"(\d+)\s*s", duration.strip())
         if not seconds:
             raise ValueError(f"Duración inválida: {duration}")
-        await _select_radio(panel, f"{seconds.group(1)} s")
+        await _select_duration(panel, seconds.group(1))
     print(f"    [config] Video verificado: {target}, {mode}, {aspect_ratio}, x{count}, {duration}")
     await _close_settings(page)

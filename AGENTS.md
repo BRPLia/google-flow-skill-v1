@@ -9,4 +9,4 @@ Tu tarea en esta carpeta es manejar Google Flow desde la CLI `flow.py`. Lee `SKI
 5. Para contenido de YouTube, explica que esta CLI produce imágenes y clips. Remotion, voz, subtítulos y montaje final requieren otro proyecto.
 6. No compartas ni subas `session/`. No limpies `outputs/` sin una petición explícita.
 
-Modelos disponibles en el proveedor actual: imagen `Nano Banana 2 Lite`, `Nano Banana 2`, `Nano Banana Pro`, `Imagen 4`; video `Veo 3.1 - Lite`, `Veo 3.1 - Fast`, `Veo 3.1 - Quality`, `Omni 1.1 Flash`. La disponibilidad depende de Flow y de la cuenta. Los medios consumen créditos.
+Modelos disponibles en el proveedor actual: imagen `Nano Banana 2 Lite`, `Nano Banana 2.1`, `Nano Banana Pro`; video `Omni 1.2 Flash`, `Veo 3.1 - Lite`. Flow retira el 5 de diciembre de 2026 `Omni 1.1 Flash`, `Veo 3.1 - Fast` y `Veo 3.1 - Quality`; `Nano Banana 2` e `Imagen 4` ya no existen (pedir `Nano Banana 2` selecciona la 2.1). La disponibilidad depende de Flow y de la cuenta. Los medios consumen créditos.

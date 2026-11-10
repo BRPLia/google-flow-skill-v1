@@ -2,7 +2,7 @@
   "project": "animar_flor_amarilla",
   "defaults": {
     "ratio": "9:16",
-    "video_model": "Omni 1.1 Flash",
+    "video_model": "Omni 1.2 Flash",
     "video_duration": "8s"
   },
   "jobs": [
