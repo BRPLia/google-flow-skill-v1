@@ -14,6 +14,7 @@ import shutil
 import time
 from .browser import get_page
 from . import settings
+from .media import MEDIA_KEY_JS, CARD_MEDIA_JS
 
 SEL_RESULT_CARD = 'flow-grid-tile-container, flow-tile-container, [aria-roledescription="draggable"]'
 SEL_MORE_MENU   = 'button[aria-label="Más opciones"], button:has(:is(i, mat-icon):text-is("more_vert"))'
@@ -32,12 +33,9 @@ def _sel_card(is_video: bool = False) -> str:
         return (
             'flow-tile-container:has(flow-video-tile), '
             'flow-tile-container:has(video), '
-            'flow-grid-tile-container:has(flow-video-tile), '
-            'flow-grid-tile-container:has(video), '
-            '[aria-roledescription="draggable"]:has(video), '
-            'flow-tile-container, '
-            'flow-grid-tile-container, '
-            '[aria-roledescription="draggable"]'
+            'flow-grid-tile-container:not(:has(flow-tile-container)):has(flow-video-tile), '
+            'flow-grid-tile-container:not(:has(flow-tile-container)):has(video), '
+            '[aria-roledescription="draggable"]:not(:has(flow-tile-container, flow-grid-tile-container)):has(video)'
         )
     return (
         'flow-tile-container:has(flow-image-tile), '
@@ -141,12 +139,26 @@ def _save_to_dest(src_path: Path | str, dest_path: Path | str) -> None:
     shutil.copy2(str(src), str(dest))
 
 
-async def download_latest(output_path: str, resolution: str = "1K", is_video: bool = False) -> str:
+async def download_latest(output_path: str, resolution: str = "1K", is_video: bool = False, asset_id: str | None = None, video_index: int | None = None) -> str:
     """Descarga el último resultado. Retorna el path guardado. Debe llamarse con lock."""
     page = await get_page()
 
     print(f"  [download 1/5] Localizando card de {'video' if is_video else 'imagen'}...")
-    card = page.locator(_sel_card(is_video)).first
+    cards = page.locator(_sel_card(is_video))
+    if asset_id and video_index is not None:
+        raise ValueError('Select a media key or a video index, not both')
+    if asset_id:
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,512}',asset_id): raise ValueError('Invalid media key')
+        keys = await cards.evaluate_all(f"cards => cards.map(c => ({MEDIA_KEY_JS})(({CARD_MEDIA_JS})(c)))")
+        if asset_id not in keys:
+            raise ValueError('Media key not present in this project; inspect its current cards before recovery')
+        card = cards.nth(keys.index(asset_id))
+    elif video_index is not None:
+        if not is_video or video_index < 0 or video_index >= await cards.count():
+            raise ValueError('Video index outside the current project')
+        card = cards.nth(video_index)
+    else:
+        card = cards.first
     await card.wait_for(state="visible", timeout=30_000)
 
     # ────────────────────────────────────────────────────────────────────────

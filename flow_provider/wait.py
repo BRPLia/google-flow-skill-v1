@@ -12,8 +12,10 @@ import asyncio
 import random
 import re
 import time
+import json
 
 from .browser import get_page
+from .media import MEDIA_KEY_JS, CARD_MEDIA_JS
 
 SEL_RESULT_IMAGE = 'flow-image-tile img.image, flow-image-tile img, img.image, img[alt*="Tarjeta que muestra la imagen" i], img[alt="Imagen generada"]'
 SEL_RESULT_VIDEO = 'flow-video-tile video, flow-video-tile img, img[alt*="video" i], img[alt="Miniatura de video"]'
@@ -117,7 +119,13 @@ async def _reuse_instruction_and_resend(page, attempt: int = 0) -> bool:
     return True
 
 
-async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, timeout_ms: int) -> str:
+async def media_ids(page) -> list[str]:
+    return await page.locator(SEL_RESULT_CARD).evaluate_all(
+        f"cards => cards.map(c => ({MEDIA_KEY_JS})(({CARD_MEDIA_JS})(c))).filter(Boolean)"
+    )
+
+
+async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, timeout_ms: int, exclude_media_ids=None) -> str:
     """Espera a que aparezca el asset nuevo o una card de error NUEVA.
 
     Devuelve 'ok' o 'error'. Lanza TimeoutError si no pasa ninguna de las dos.
@@ -132,7 +140,19 @@ async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, ti
             if (!cards.length) return {{ ready: false, reason: "sin_cards" }};
             if (!({guard})) return {{ ready: false, reason: "esperando_aparicion_card", total: cards.length }};
 
-            const card = cards[0];
+            let card = cards[0];
+            let assetId = null;
+            const excluded = {json.dumps(exclude_media_ids)};
+            if ('{media_sel}'.includes('video') && excluded !== null) {{
+                card = [...cards].find(c => {{
+                    if (!c.querySelector('flow-video-tile, video')) return false;
+                    const media = ({CARD_MEDIA_JS})(c);
+                    const id = ({MEDIA_KEY_JS})(media);
+                    if (!id || excluded.includes(id)) return false;
+                    assetId = id; return true;
+                }});
+                if (!card) return {{ready:false,reason:'esperando_video_nuevo'}};
+            }}
 
             // 1. Descartar si todavía hay porcentaje numérico de generación visible (ej. "14%", "50%")
             const textContent = card.innerText || "";
@@ -157,10 +177,10 @@ async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, ti
                     const src = video.getAttribute('src') || video.currentSrc || video.src || '';
                     const aria = (video.getAttribute('aria-label') || '').toLowerCase();
                     if ((src.startsWith('http') && src.length > 40) || (src.startsWith('blob:') && src.length > 50) || aria.includes('generado')) {{
-                        return {{ ready: true, detail: "video_src" }};
+                        return {{ ready: true, detail: "video_src", asset_id: assetId }};
                     }}
                     if (video.readyState >= 2 && !video.paused) {{
-                        return {{ ready: true, detail: "video_playing" }};
+                        return {{ ready: true, detail: "video_playing", asset_id: assetId }};
                     }}
                 }}
 
@@ -169,7 +189,7 @@ async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, ti
                 const hasTile = card.querySelector('flow-video-tile') || card.tagName.toLowerCase().includes('video');
                 const img = card.querySelector('img');
                 if (hasTile && img && img.complete && img.naturalWidth > 0) {{
-                    return {{ ready: true, detail: "video_poster_listo" }};
+                    return {{ ready: true, detail: "video_poster_listo", asset_id: assetId }};
                 }}
 
                 return {{ ready: false, reason: "video_procesando" }};
@@ -244,7 +264,7 @@ async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, ti
             print(f"    [wait] ¡{tipo.capitalize()} lista en canvas! ({elapsed}s, vía {detail})")
             print(f"    [wait] Asentando animación en interfaz (3s)...")
             await asyncio.sleep(3.0)
-            return "ok"
+            return 'ok:'+res['asset_id'] if res.get('asset_id') else 'ok'
 
         # Logs informativos periódicos cada 5 segundos
         if elapsed - last_log >= 5:
@@ -268,14 +288,14 @@ async def _poll_until_ready(page, media_sel: str, pre_cards, pre_errors: int, ti
 
 
 async def _wait_for_media(media_sel: str, kind: str, timeout_ms: int,
-                          max_retries: int, pre_submit_count) -> None:
+                          max_retries: int, pre_submit_count, exclude_media_ids=None):
     page = await get_page()
     pre_errors = await error_card_count(page)
 
     for intento in range(max_retries + 1):
-        estado = await _poll_until_ready(page, media_sel, pre_submit_count, pre_errors, timeout_ms)
-        if estado == "ok":
-            return
+        estado = await _poll_until_ready(page, media_sel, pre_submit_count, pre_errors, timeout_ms,exclude_media_ids)
+        if estado.startswith('ok'):
+            return estado.split(':',1)[1] if ':' in estado else None
         if intento >= max_retries:
             raise Exception(
                 f"Generación de {kind} falló {max_retries + 1} veces seguidas. "
@@ -309,9 +329,10 @@ async def wait_for_image(timeout_ms: int = 120000, max_retries: int = 2, pre_sub
         pass
 
 
-async def wait_for_video(timeout_ms: int = 180000, max_retries: int = 2, pre_submit_count: int | None = None) -> None:
+async def wait_for_video(timeout_ms: int = 180000, max_retries: int = 2, pre_submit_count: int | None = None, exclude_media_ids=None):
     """Espera el video generado. Recupera sola si Flow falla. Default 3 min (180s)."""
-    await _wait_for_media(SEL_RESULT_VIDEO, "video", timeout_ms, max_retries, pre_submit_count)
+    asset_id=await _wait_for_media(SEL_RESULT_VIDEO, "video", timeout_ms, max_retries, pre_submit_count,exclude_media_ids)
+    if asset_id: return asset_id
     page = await get_page()
     try:
         await page.wait_for_function(

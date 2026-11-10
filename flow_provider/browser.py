@@ -14,8 +14,21 @@ _playwright: Playwright | None = None
 _context: BrowserContext | None = None
 _page: Page | None = None
 SEL_SETTINGS_TRIGGER = 'button[aria-label="Botón de configuración"], button[aria-label="Activador de ajustes"]'
+SEL_AGENT_MODE_ON = 'flow-agent-mode-toggle-chip button[aria-pressed="true"]'
 _lock = asyncio.Lock()
 _last_project_url: str | None = None
+
+
+async def wait_for_settings(page, timeout: int = 15_000) -> None:
+    """Espera la barra del generador. Si Flow abre con su Agente activo, los
+    ajustes de modelo/formato quedan ocultos: se desactiva antes de seguir."""
+    trigger = page.locator(SEL_SETTINGS_TRIGGER).first
+    agent_on = page.locator(SEL_AGENT_MODE_ON).first
+    await trigger.or_(agent_on).first.wait_for(state="visible", timeout=timeout)
+    if await agent_on.is_visible():
+        print("  [flow] Modo Agente de Flow activo; desactivándolo para usar el generador.")
+        await agent_on.click()
+        await trigger.wait_for(state="visible", timeout=timeout)
 
 
 async def startup() -> None:
@@ -91,7 +104,7 @@ async def _restore_project(page) -> None:
     if not _last_project_url:
         raise RuntimeError("Chrome se cerró y no hay un proyecto Flow registrado para reanudar.")
     await page.goto(_last_project_url, wait_until="domcontentloaded", timeout=60_000)
-    await page.locator(SEL_SETTINGS_TRIGGER).wait_for(state="visible", timeout=45_000)
+    await wait_for_settings(page, timeout=45_000)
     print(f"  [flow-browser] Proyecto restaurado: {page.url}")
 
 

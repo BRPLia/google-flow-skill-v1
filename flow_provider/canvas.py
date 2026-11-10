@@ -74,7 +74,7 @@ async def select_ingredients_by_name(uuids: list[str]) -> None:
             raise RuntimeError(f"No se encontró el frame {uuid} en el panel; ASB conocido={bool(key)}")
         await target.click()
         await page.wait_for_timeout(500)
-        attached = page.get_by_role("button", name=re.compile(r"^Ingrediente$|^Ingredient$"))
+        attached = page.get_by_role("button", name=re.compile(r"^Ingrediente(?: de imagen)?$|^Ingredient(?: image)?$"))
         if await _matching_asset_image(attached, uuid, key) is None:
             if await panel.is_visible():
                 add = panel.get_by_role("button", name=re.compile(r"Agregar a la instrucción|Add to prompt|Add to instruction", re.I)).first
@@ -272,7 +272,7 @@ async def _await_user_rights_notice(page, timeout_ms: int = 300_000) -> None:
     await page.wait_for_timeout(1_500)
 
 
-async def upload_standalone_image(image_path: str) -> None:
+async def upload_standalone_image(image_path: str) -> str:
     """Sube una imagen al canvas directamente (modo imagen). Flujo 5."""
     page = await get_page()
     
@@ -287,6 +287,11 @@ async def upload_standalone_image(image_path: str) -> None:
 
     # 1. Contar elementos en canvas antes de subir para tener baseline
     pre_upload_cards = await page.locator('flow-grid-tile-container, flow-tile-container, [aria-roledescription="draggable"]').count()
+    from .media import MEDIA_KEY_JS
+    previous=set()
+    for image in await page.locator('flow-grid-tile-container img, flow-tile-container img').all():
+        key=await image.evaluate(MEDIA_KEY_JS)
+        if key: previous.add(key)
     
     # 2. Esperar al boton de añadir recursos y click
     await page.wait_for_selector(SEL_ADD_INGREDIENT, state="visible", timeout=15_000)
@@ -332,6 +337,11 @@ async def upload_standalone_image(image_path: str) -> None:
     # 5. Cerrar el panel presionando Escape una vez confirmado el upload en el canvas
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(1000)
+    for image in await page.locator('flow-grid-tile-container img, flow-tile-container img').all():
+        key=await image.evaluate(MEDIA_KEY_JS)
+        if key and key not in previous:
+            return key
+    raise RuntimeError('Uploaded image identity missing; generation stopped')
 
 
 
@@ -341,19 +351,32 @@ async def get_canvas_count() -> int:
     return await page.locator('flow-grid-tile-container, flow-tile-container, [aria-roledescription="draggable"]').count()
 
 
-SEL_SLOTS_INICIAR = 'button.empty-chip:has-text("Inicio"), div:text-is("Iniciar")'
-SEL_SLOTS_FIN = 'button.empty-chip:has-text("Fin"), div:text-is("Fin")'
+SEL_SLOTS_INICIAR = 'button.empty-chip:has-text("Iniciar"):visible, button.empty-chip:has-text("Inicio"):visible, div:text-is("Iniciar"):visible'
+SEL_SLOTS_FIN = 'button.empty-chip:has-text("Fin"):visible, div:text-is("Fin"):visible'
 SEL_UPLOAD_BTN = ':text-is("Subir imagen")'
 SEL_SLOT_LOADED = '.ingredient-bar-container img'
 
-async def upload_frame(file_path: str, slot: str = "initial") -> None:
+async def upload_frame(file_path: str, slot: str = "initial") -> dict:
     """Sube un frame para modo Fotogramas. slot: 'initial' o 'final'."""
     page = await get_page()
-
-    target_slot = page.locator(SEL_SLOTS_INICIAR) if slot == "initial" else page.locator(SEL_SLOTS_FIN)
+    from pathlib import Path
+    if slot not in ('initial','final') or not Path(file_path).is_file():
+        raise ValueError('Valid slot and existing frame file required')
+    # Current Flow keeps the previous frame after submit. Replace the requested
+    # slot explicitly; never count any loaded image as proof of this upload.
+    slots=page.locator('.ingredient-bar-container .frame-trigger')
+    await slots.first.wait_for(state='visible',timeout=10_000)
+    target=slots.nth(0 if slot=='initial' else 1)
+    loaded=target.locator('button.chip-container')
+    if await loaded.count():
+        await loaded.click()
+    target_slot=target.locator('button.empty-chip')
     await target_slot.first.wait_for(state="visible", timeout=10000)
-
-    initial_count = await page.locator(SEL_SLOT_LOADED).count()
+    from .media import MEDIA_KEY_JS
+    before=set()
+    for img in await page.locator('flow-grid-tile-container img, flow-tile-container img').all():
+        key=await img.evaluate(MEDIA_KEY_JS)
+        if key: before.add(key)
     await target_slot.first.click()
     await page.wait_for_timeout(2000)
 
@@ -367,6 +390,36 @@ async def upload_frame(file_path: str, slot: str = "initial") -> None:
         await upload_btn.click(force=True)
     file_chooser = await fc_info.value
     await file_chooser.set_files(file_path)
+    await _await_user_rights_notice(page)
+
+    # A preview of the previous upload can stay visible while the new upload
+    # is still processing. Never confirm that stale preview.
+    await page.wait_for_function("""before => {
+        const key = """ + MEDIA_KEY_JS + """;
+        return [...document.querySelectorAll('flow-grid-tile-container img, flow-tile-container img')]
+          .some(img => img.complete && img.naturalWidth > 0 && key(img) && !before.includes(key(img)));
+    }""", arg=list(before), timeout=90_000)
+    # The picker retains its previously highlighted image. Select the uploaded
+    # card by observed identity, rather than clicking its generic confirmation.
+    uploaded_key=None
+    for candidate in await page.locator('flow-grid-tile-container img, flow-tile-container img').all():
+        candidate_key=await candidate.evaluate(MEDIA_KEY_JS)
+        if candidate_key and candidate_key not in before:
+            uploaded_key=candidate_key
+            break
+    if uploaded_key is None:
+        raise RuntimeError('Uploaded frame card missing; generation stopped')
+    picker_image=page.locator(f'flow-add-menu-asset-item img[src*="{uploaded_key}"]')
+    await picker_image.first.wait_for(state='visible',timeout=20_000)
+    preview=page.locator('img.detail-preview-image').first
+    if not await preview.count() or await preview.evaluate(MEDIA_KEY_JS)!=uploaded_key:
+        await picker_image.first.click()
+    await preview.wait_for(state='visible',timeout=15_000)
+    await page.wait_for_function("""expected => {
+        const image=document.querySelector('img.detail-preview-image');
+        const key="""+MEDIA_KEY_JS+""";
+        return image && image.complete && image.naturalWidth>0 && key(image)===expected;
+    }""",arg=uploaded_key,timeout=20_000)
 
     # La vista previa nueva exige confirmar antes de adjuntar el fotograma.
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -381,14 +434,14 @@ async def upload_frame(file_path: str, slot: str = "initial") -> None:
         await add_btn.click()
         await add_btn.wait_for(state="hidden", timeout=15_000)
 
-    await page.wait_for_function(
-        f"""() => {{
-            const imgs = document.querySelectorAll('{SEL_SLOT_LOADED}');
-            if (imgs.length <= {initial_count}) return false;
-            return [...imgs].some(img => img.complete && img.naturalWidth > 0);
-        }}""",
-        timeout=60000
-    )
+    image=target.locator('img').first
+    await image.wait_for(state='visible',timeout=60_000)
+    await image.evaluate('img => img.decode()')
+    key=await image.evaluate(MEDIA_KEY_JS)
+    if key!=uploaded_key:
+        raise RuntimeError('Attached frame is not the newly uploaded asset; generation stopped')
+    print(f'    [frame] {slot}: newly uploaded asset verified')
+    return {'slot':slot,'file':str(Path(file_path).resolve()),'asset_id':key}
 
 
 async def select_frame_from_project(uuid: str, slot: str = "initial") -> None:

@@ -49,6 +49,7 @@ from playwright.async_api import async_playwright
 
 import flow_provider as flow
 from flow_provider import settings
+from flow_provider.wait import media_ids
 
 # Consola UTF-8 en Windows (acentos/emojis sin romper la salida).
 if hasattr(sys.stdout, "reconfigure"):
@@ -166,35 +167,61 @@ async def cmd_status(_args) -> int:
 # ---------------------------------------------------------------------------
 # Generadores atomicos (asumen proyecto YA abierto)
 # ---------------------------------------------------------------------------
-async def _gen_image(prompt, ratio, model, count, image, out_path) -> str:
+async def _gen_image(prompt, ratio, model, count, image, out_path, job_state=None,prepare_only=False) -> str:
     if count != 1:
         raise ValueError("Esta CLI descarga una imagen por trabajo. Para un lote, usa varios jobs image con count=1.")
     await flow.select_image_mode(aspect_ratio=ratio, count=count, model=model)
+    reference_id=None
     if image:
-        await flow.upload_standalone_image(image)
+        reference_id=await flow.upload_standalone_image(image)
+        await flow.select_ingredients_by_name([reference_id])
+    if job_state is not None: job_state['reference_asset_id']=reference_id
+    if prepare_only:
+        page=await flow.get_page()
+        target=Path(out_path).with_suffix('.preflight.json')
+        await page.screenshot(path=str(target.with_suffix('.png')))
+        target.with_suffix('.html').write_text(await page.content(),encoding='utf8')
+        target.write_text(json.dumps({'url':page.url,'submitted':False,'image':image,'reference_asset_id':reference_id,'model':model},indent=2),encoding='utf8')
+        return str(target)
     pre = await flow.get_canvas_count()
+    if job_state is not None: job_state['submitted']=True
     await flow.submit_prompt(prompt)
-    await flow.wait_for_image(pre_submit_count=pre)
+    await flow.wait_for_image(pre_submit_count=pre,max_retries=0)
     return await flow.download_latest(out_path, resolution="1K", is_video=False)
 
 
-async def _gen_video(prompt, ratio, model, count, start, end, out_path, duration=None) -> str:
+async def _gen_video(prompt, ratio, model, count, start, end, out_path, duration=None,job_state=None,prepare_only=False) -> str:
     if count != 1:
         raise ValueError("Esta CLI descarga un video por trabajo. Para un lote, usa varios jobs video con count=1.")
+    for reference in (start,end):
+        if reference and not Path(reference).is_file():
+            raise ValueError('Missing frame file: '+str(reference))
+    frames=[]
     if start and end:
         await flow.select_video_mode(mode="fotogramas", model=model, aspect_ratio=ratio, count=count, duration=duration)
-        await flow.upload_frame(start, slot="initial")
+        frames.append(await flow.upload_frame(start, slot="initial"))
         await asyncio.sleep(3)
-        await flow.upload_frame(end, slot="final")
+        frames.append(await flow.upload_frame(end, slot="final"))
     elif start:
         await flow.select_video_mode(mode="fotogramas", model=model, aspect_ratio=ratio, count=count, duration=duration)
-        await flow.upload_frame(start, slot="initial")
+        frames.append(await flow.upload_frame(start, slot="initial"))
     else:
         await flow.select_video_mode(mode="texto", model=model, aspect_ratio=ratio, count=count, duration=duration)
+    if job_state is not None: job_state['frames']=frames
+    if prepare_only:
+        page=await flow.get_page()
+        target=Path(out_path).with_suffix('.preflight.json')
+        await page.screenshot(path=str(target.with_suffix('.png')))
+        target.with_suffix('.html').write_text(await page.content(),encoding='utf8')
+        target.write_text(json.dumps({'url':page.url,'submitted':False,'start':start,'end':end,'frames':frames,'model':model,'duration':duration},indent=2),encoding='utf8')
+        return str(target)
     pre = await flow.get_canvas_count()
+    before=await media_ids(await flow.get_page())
+    if job_state is not None: job_state['submitted']=True
     await flow.submit_prompt(prompt)
-    await flow.wait_for_video(pre_submit_count=pre)
-    return await flow.download_latest(out_path, resolution="720p", is_video=True)
+    asset_id=await flow.wait_for_video(pre_submit_count=pre,exclude_media_ids=before,max_retries=0)
+    if job_state is not None: job_state['asset_id']=asset_id
+    return await flow.download_latest(out_path, resolution="720p", is_video=True,asset_id=asset_id)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +237,7 @@ async def cmd_image(args) -> int:
     await flow.startup()
     try:
         await flow.create_project()
-        saved = await _gen_image(args.prompt, args.ratio, args.model, args.count, args.image, out_path)
+        saved = await _gen_image(args.prompt, args.ratio, args.model, args.count, args.image, out_path,prepare_only=args.prepare_only)
         print(f"OK imagen -> {saved}")
         return 0
     finally:
@@ -227,7 +254,13 @@ async def cmd_video(args) -> int:
     await flow.startup()
     try:
         await flow.create_project()
-        saved = await _gen_video(args.prompt, args.ratio, args.model, args.count, args.start, args.end, out_path, args.duration)
+        try:
+            saved = await _gen_video(args.prompt, args.ratio, args.model, args.count, args.start, args.end, out_path, args.duration,prepare_only=args.prepare_only)
+        except Exception:
+            page=await flow.get_page()
+            await page.screenshot(path=out_path+'.prepare-error.png')
+            Path(out_path+'.prepare-error.html').write_text(await page.content(),encoding='utf8')
+            raise
         print(f"OK video -> {saved}")
         return 0
     finally:
@@ -246,6 +279,8 @@ async def cmd_batch(args) -> int:
     d_vid_model = defaults.get("video_model", "Veo 3.1 - Lite")
     d_vid_duration = defaults.get("video_duration")
     jobs = data.get("jobs", [])
+    if args.prepare_only and any(job.get('type','image')!='video' for job in jobs):
+        raise ValueError('--prepare-only accepts video jobs only; no batch was submitted')
 
     # Cada proyecto va a su propia subcarpeta: facil de revisar y de borrar.
     project = data.get("project") or f"proyecto_{_stamp()}"
@@ -254,22 +289,25 @@ async def cmd_batch(args) -> int:
 
     print(f"BATCH '{project}': {len(jobs)} trabajos. Salida -> {project_dir}")
     results = []
+    report=project_dir/'batch_report.json'
     await flow.startup()
     try:
-        await flow.create_project()
+        project_uuid,project_url=await flow.create_project()
+        (project_dir/'provider_project.json').write_text(json.dumps({'project_uuid':project_uuid,'project_url':project_url}),encoding='utf8')
         for i, job in enumerate(jobs, 1):
             jtype = job.get("type", "image")
             name = job.get("name") or f"{jtype}_{i:02d}"
             prompt = job.get("prompt", "")
             ratio = job.get("ratio", d_ratio)
             print(f"\n--- [{i}/{len(jobs)}] {jtype} :: {name} ---")
+            job_state={'submitted':False}
             try:
                 if jtype == "image":
                     out_path = _out_path(project_dir, name, "png")
                     saved = await _gen_image(
                         prompt, ratio, job.get("model", d_img_model),
                         int(job.get("count", 1)),
-                        _resolve_asset(project_dir, job.get("image")), out_path,
+                        _resolve_asset(project_dir, job.get("image")), out_path,job_state=job_state,
                     )
                 elif jtype == "video":
                     out_path = _out_path(project_dir, name, "mp4")
@@ -278,13 +316,13 @@ async def cmd_batch(args) -> int:
                         int(job.get("count", 1)),
                         _resolve_asset(project_dir, job.get("start")),
                         _resolve_asset(project_dir, job.get("end")), out_path,
-                        job.get("duration", d_vid_duration),
+                        job.get("duration", d_vid_duration),job_state=job_state,prepare_only=args.prepare_only,
                     )
                 else:
                     print(f"  tipo desconocido '{jtype}', saltando.")
                     continue
                 print(f"  OK -> {saved}")
-                results.append({"name": name, "type": jtype, "file": saved, "ok": True})
+                results.append({"name": name, "type": jtype, "file": saved, "ok": True, **job_state})
             except Exception as e:
                 print(f"  ERROR en '{name}': {e}")
                 debug_dir = project_dir / "_debug"
@@ -297,7 +335,9 @@ async def cmd_batch(args) -> int:
                     print(f"  Diagnóstico guardado en {debug_dir}")
                 except Exception as debug_error:
                     print(f"  No se pudo guardar el diagnóstico: {debug_error}")
-                results.append({"name": name, "type": jtype, "ok": False, "error": str(e)})
+                results.append({"name": name, "type": jtype, "ok": False, **job_state, "error": str(e)})
+            finally:
+                report.write_text(json.dumps(results,indent=2,ensure_ascii=False),encoding='utf8')
     finally:
         await flow.shutdown()
 
@@ -334,6 +374,28 @@ async def cmd_clean(args) -> int:
     return 0
 
 
+async def cmd_download(args) -> int:
+    """Recover an existing video; never submit a generation."""
+    target=Path(args.out)
+    if target.exists(): raise ValueError('Output exists; choose a new file')
+    if not re.fullmatch(r'[a-fA-F0-9-]{36}',args.project): raise ValueError('Invalid project UUID')
+    await flow.startup()
+    try:
+        await flow.navigate_to_project(args.project)
+        try:
+            await flow.download_latest(str(target),resolution='720p',is_video=True,asset_id=args.asset_id,video_index=args.video_index)
+        except Exception:
+            page=await flow.get_page()
+            target.parent.mkdir(parents=True,exist_ok=True)
+            await page.screenshot(path=str(target)+'.recovery-debug.png')
+            Path(str(target)+'.recovery-debug.html').write_text(await page.content(),encoding='utf8')
+            Path(str(target)+'.recovery-debug.json').write_text(json.dumps({'url':page.url}),encoding='utf8')
+            raise
+    finally:
+        await flow.shutdown()
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -352,6 +414,7 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--image", default=None, help="Imagen de referencia para editar.")
     pi.add_argument("--name", default=None)
     pi.add_argument("--out", default=str(DEFAULT_OUT))
+    pi.add_argument('--prepare-only',action='store_true',help='Verify uploaded image reference without submitting generation')
 
     pv = sub.add_parser("video", help="Generar un video.")
     pv.add_argument("--prompt", required=True)
@@ -363,10 +426,19 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--end", default=None, help="Fotograma final (imagen).")
     pv.add_argument("--name", default=None)
     pv.add_argument("--out", default=str(DEFAULT_OUT))
+    pv.add_argument('--prepare-only',action='store_true',help='Configure/upload frames and save screenshot/HTML without submitting generation')
 
     pb = sub.add_parser("batch", help="Ejecutar guion JSON de varios trabajos.")
     pb.add_argument("jobfile")
     pb.add_argument("--out", default=str(DEFAULT_OUT))
+    pb.add_argument('--prepare-only',action='store_true',help='Prepare all video frames without generating, save per-job screenshot/HTML')
+
+    pd=sub.add_parser('download',help='Download an existing video without generating again')
+    pd.add_argument('--project',required=True)
+    selection=pd.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--asset-id',help='Media UUID or full ASB key observed in this project')
+    selection.add_argument('--video-index',type=int,help='Zero-based video card index, only after inspecting the project')
+    pd.add_argument('--out',required=True,help='New MP4 file path')
 
     pc = sub.add_parser("clean", help="Borrar resultados de outputs.")
     pc.add_argument("project", nargs="?", default=None,
@@ -382,6 +454,7 @@ HANDLERS = {
     "image": cmd_image,
     "video": cmd_video,
     "batch": cmd_batch,
+    "download": cmd_download,
     "clean": cmd_clean,
 }
 

@@ -4,7 +4,7 @@ Creación y navegación de proyectos en Google Flow.
 import re
 from pathlib import Path
 
-from .browser import get_page, SEL_SETTINGS_TRIGGER
+from .browser import get_page, wait_for_settings
 
 FLOW_BASE_URL = "https://labs.google/fx/es-419/tools/flow"
 NEW_PROJECT_BUTTON = re.compile(r"Proyecto nuevo|Nuevo proyecto|New project", re.I)
@@ -63,7 +63,7 @@ async def ensure_all_media_tab(page) -> None:
 
 async def _wait_for_settings(page) -> None:
     try:
-        await page.locator(SEL_SETTINGS_TRIGGER).first.wait_for(state="visible", timeout=15_000)
+        await wait_for_settings(page)
     except Exception:
         debug_dir = Path(__file__).resolve().parent.parent / "scratch"
         debug_dir.mkdir(exist_ok=True)
