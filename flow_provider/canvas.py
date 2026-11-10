@@ -362,14 +362,20 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
     from pathlib import Path
     if slot not in ('initial','final') or not Path(file_path).is_file():
         raise ValueError('Valid slot and existing frame file required')
-    # Current Flow keeps the previous frame after submit. Replace the requested
-    # slot explicitly; never count any loaded image as proof of this upload.
+    # Fechar qualquer visualizador fullscreen ou diálogo que possa estar aberto
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+    except Exception:
+        pass
+
     slots=page.locator('.ingredient-bar-container .frame-trigger')
     await slots.first.wait_for(state='visible',timeout=10_000)
     target=slots.nth(0 if slot=='initial' else 1)
     loaded=target.locator('button.chip-container')
     if await loaded.count():
         await loaded.click()
+        await page.wait_for_timeout(500)
     target_slot=target.locator('button.empty-chip')
     await target_slot.first.wait_for(state="visible", timeout=10000)
     from .media import MEDIA_KEY_JS
@@ -378,15 +384,15 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
         key=await img.evaluate(MEDIA_KEY_JS)
         if key: before.add(key)
     await target_slot.first.click()
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(1000)
 
-    async with page.expect_file_chooser(timeout=5000) as fc_info:
-        import re
-        upload_btn = page.locator('button, [role="button"]').filter(
-            has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen|Enviar mídia|Fazer upload|Upload)", re.IGNORECASE)
-        ).first
-        if await upload_btn.count() == 0:
-            raise Exception("Botón de subida ('Cargar medios' / 'Upload') no encontrado para el slot.")
+    upload_btn = page.locator('button.sidebar-upload-btn, button:has-text("Enviar mídia"), button:has-text("Cargar medios"), button:has-text("Upload media")').first
+    if not await upload_btn.is_visible():
+        await target_slot.first.click()
+        await page.wait_for_timeout(1000)
+
+    await upload_btn.wait_for(state="visible", timeout=10_000)
+    async with page.expect_file_chooser(timeout=15_000) as fc_info:
         await upload_btn.click(force=True)
     file_chooser = await fc_info.value
     await file_chooser.set_files(file_path)
