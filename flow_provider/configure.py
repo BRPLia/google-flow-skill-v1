@@ -181,7 +181,12 @@ async def _select_duration(panel, seconds: str) -> None:
     """Omni 1.1 ofrece botones (4/6/8/10 s); Omni 1.2 un deslizador «Longitud»."""
     slider = panel.locator('input[type="range"]')
     if not await slider.count():
-        await _select_radio(panel, f"{seconds} s")
+        try:
+            control = panel.get_by_role("radio", name=f"{seconds} s")
+            if await control.count() > 0 and await control.is_visible():
+                await _select_radio(panel, f"{seconds} s")
+        except Exception:
+            pass
         return
     shown = re.compile(rf"(?:Longitud|Duração|Comprimento|Length)?\s*{seconds}\s*s(?!\w)", re.I)
     for step in range(int(await slider.get_attribute("min")), int(await slider.get_attribute("max")) + 1):
