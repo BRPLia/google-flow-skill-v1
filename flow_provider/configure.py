@@ -110,21 +110,21 @@ async def select_image_mode(
 
     # 2. Confirmar pestaña 'Imagen' dentro del panel
     print("    [config 2/5] Confirmando pestaña 'Imagen'...")
-    tab_img = page.locator('flow-prompt-box-settings flow-toggles[aria-label="Modo"] button:has-text("Imagen"), flow-prompt-box-settings button:has-text("Imagen")').first
+    tab_img = page.locator('flow-prompt-box-settings button:has-text("Imagen"), flow-prompt-box-settings button:has-text("Imagem"), flow-prompt-box-settings button:has-text("Image")').first
     if await tab_img.count() > 0 and await tab_img.is_visible():
         await tab_img.click()
         await page.wait_for_timeout(300)
 
     # 3. Aspect ratio dentro del panel (ej. 9:16)
     print(f"    [config 3/5] Seleccionando relación de aspecto: {aspect_ratio}...")
-    ratio_btn = page.locator(f'flow-prompt-box-settings flow-toggles[aria-label="Relación de aspecto"] button:has-text("{aspect_ratio}"), flow-prompt-box-settings button:has-text("{aspect_ratio}")').first
+    ratio_btn = page.locator(f'flow-prompt-box-settings button:has-text("{aspect_ratio}")').first
     if await ratio_btn.count() > 0 and await ratio_btn.is_visible():
         await ratio_btn.click()
         await page.wait_for_timeout(300)
 
     # 4. Seleccionar modelo dentro del panel
     print(f"    [config 4/5] Verificando modelo: {model}...")
-    model_btn = page.locator('flow-prompt-box-settings button[aria-label="Seleccionar familia de modelos"], flow-prompt-box-settings button:has(span.model-select-trigger-content)').first
+    model_btn = page.locator('flow-prompt-box-settings button[aria-label*="model" i], flow-prompt-box-settings button[aria-label*="modelos" i], flow-prompt-box-settings button:has(span.model-select-trigger-content), flow-prompt-box-settings button.model-select-trigger').first
     if await model_btn.count() > 0 and await model_btn.is_visible():
         current_text = await model_btn.inner_text()
         # Si el modelo ya está activo, no tocar el submenú
@@ -141,8 +141,8 @@ async def select_image_mode(
             await menu_item.wait_for(state="visible", timeout=8_000)
             await menu_item.click()
             await page.wait_for_function(
-                """target => {
-                    const b = document.querySelector('flow-prompt-box-settings button[aria-label="Seleccionar familia de modelos"]');
+                r"""target => {
+                    const b = document.querySelector('flow-prompt-box-settings button[aria-label*="model" i], flow-prompt-box-settings button[aria-label*="modelos" i], flow-prompt-box-settings button:has(span.model-select-trigger-content)');
                     const clean = s => s.replace(/arrow_drop_down/g, '').replace(/🍌/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
                     return b && clean(b.innerText) === target;
                 }""", arg=_image_model_name(target_model), timeout=8_000)
@@ -151,7 +151,7 @@ async def select_image_mode(
 
     # 5. Cantidad dentro del panel (x1)
     print(f"    [config 5/5] Ajustando cantidad a: x{count}...")
-    count_btn = page.locator(f'flow-prompt-box-settings flow-toggles[aria-label="Número de salidas"] button:has-text("x{count}"), flow-prompt-box-settings button:has-text("x{count}")').first
+    count_btn = page.locator(f'flow-prompt-box-settings button:has-text("x{count}")').first
     if await count_btn.count() > 0 and await count_btn.is_visible():
         await count_btn.click()
         await page.wait_for_timeout(300)
@@ -179,11 +179,16 @@ async def _select_radio(panel, name: str | re.Pattern[str]) -> None:
 
 async def _select_duration(panel, seconds: str) -> None:
     """Omni 1.1 ofrece botones (4/6/8/10 s); Omni 1.2 un deslizador «Longitud»."""
-    slider = panel.locator('input[type="range"][aria-label="Longitud"]')
+    slider = panel.locator('input[type="range"]')
     if not await slider.count():
-        await _select_radio(panel, f"{seconds} s")
+        try:
+            control = panel.get_by_role("radio", name=f"{seconds} s")
+            if await control.count() > 0 and await control.is_visible():
+                await _select_radio(panel, f"{seconds} s")
+        except Exception:
+            pass
         return
-    shown = re.compile(rf"Longitud\s*{seconds}\s*s(?!\w)")
+    shown = re.compile(rf"(?:Longitud|Duração|Comprimento|Length)?\s*{seconds}\s*s(?!\w)", re.I)
     for step in range(int(await slider.get_attribute("min")), int(await slider.get_attribute("max")) + 1):
         if shown.search(await panel.inner_text()):
             return
@@ -202,10 +207,11 @@ async def select_video_mode(
     panel = await _open_settings(page)
     await _select_radio(panel, re.compile(r"^V[ií]deo$", re.I))
     if mode in ("fotogramas", "ingredientes"):
-        await _select_radio(panel, "Fotogramas" if mode == "fotogramas" else "Ingredientes")
+        target_mode = re.compile(r"^(?:Fotogramas|Frames)$", re.I) if mode == "fotogramas" else re.compile(r"^(?:Ingredientes|Elementos|Ingredients)$", re.I)
+        await _select_radio(panel, target_mode)
     elif mode != "texto":
         raise ValueError(f"Modo de video desconocido: {mode}")
-    trigger = panel.get_by_role("button", name="Seleccionar familia de modelos", exact=True)
+    trigger = panel.locator('button.model-select-trigger, button[aria-label*="model" i], button[aria-label*="modelos" i]').first
     target = "Omni 1.2 Flash" if model in ("Omni Flash", "Omni 1.2 - Flash") else model
     pattern = re.compile(r"^\s*" + re.escape(target) + r"\s*(?:arrow_drop_down)?\s*$")
     if not pattern.fullmatch(await trigger.inner_text()):

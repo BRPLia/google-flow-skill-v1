@@ -135,8 +135,8 @@ async def cmd_login(_args) -> int:
             url = page.url
             try:
                 ready = await page.get_by_role(
-                    "button", name=re.compile(r"Proyecto nuevo|Nuevo proyecto|New project", re.I)
-                ).count() > 0
+                    "button", name=re.compile(r"Proyecto nuevo|Nuevo proyecto|New project|Novo projeto", re.I)
+                ).count() > 0 or await page.locator("button.new-project-button").count() > 0
             except Exception:
                 ready = False
             if ready and "accounts.google" not in url:
@@ -224,6 +224,26 @@ async def _gen_video(prompt, ratio, model, count, start, end, out_path, duration
     return await flow.download_latest(out_path, resolution="720p", is_video=True,asset_id=asset_id)
 
 
+async def get_or_create_project(project_dir: Path) -> tuple[str, str]:
+    meta_file = project_dir / "provider_project.json"
+    if meta_file.exists():
+        try:
+            saved = json.loads(meta_file.read_text(encoding="utf-8"))
+            uuid = saved.get("project_uuid")
+            url = saved.get("project_url")
+            if uuid:
+                print(f"  [flow] Reutilizando proyecto existente en Flow: {uuid}")
+                await flow.navigate_to_project(uuid)
+                return uuid, url
+        except Exception as e:
+            print(f"  [flow] No se pudo reanudar proyecto ({e}), creando uno nuevo...")
+
+    print("  [flow] Creando nuevo proyecto en Flow...")
+    uuid, url = await flow.create_project()
+    meta_file.write_text(json.dumps({"project_uuid": uuid, "project_url": url}), encoding="utf-8")
+    return uuid, url
+
+
 # ---------------------------------------------------------------------------
 # Comandos de generacion
 # ---------------------------------------------------------------------------
@@ -292,8 +312,7 @@ async def cmd_batch(args) -> int:
     report=project_dir/'batch_report.json'
     await flow.startup()
     try:
-        project_uuid,project_url=await flow.create_project()
-        (project_dir/'provider_project.json').write_text(json.dumps({'project_uuid':project_uuid,'project_url':project_url}),encoding='utf8')
+        project_uuid, project_url = await get_or_create_project(project_dir)
         for i, job in enumerate(jobs, 1):
             jtype = job.get("type", "image")
             name = job.get("name") or f"{jtype}_{i:02d}"
@@ -301,6 +320,12 @@ async def cmd_batch(args) -> int:
             ratio = job.get("ratio", d_ratio)
             print(f"\n--- [{i}/{len(jobs)}] {jtype} :: {name} ---")
             job_state={'submitted':False}
+            try:
+                page = await flow.get_page()
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(300)
+            except Exception:
+                pass
             try:
                 if jtype == "image":
                     out_path = _out_path(project_dir, name, "png")
@@ -325,6 +350,11 @@ async def cmd_batch(args) -> int:
                 results.append({"name": name, "type": jtype, "file": saved, "ok": True, **job_state})
             except Exception as e:
                 print(f"  ERROR en '{name}': {e}")
+                try:
+                    page = await flow.get_page()
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
                 debug_dir = project_dir / "_debug"
                 try:
                     debug_dir.mkdir(exist_ok=True)

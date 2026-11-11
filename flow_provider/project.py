@@ -7,7 +7,7 @@ from pathlib import Path
 from .browser import get_page, wait_for_settings
 
 FLOW_BASE_URL = "https://labs.google/fx/es-419/tools/flow"
-NEW_PROJECT_BUTTON = re.compile(r"Proyecto nuevo|Nuevo proyecto|New project", re.I)
+NEW_PROJECT_BUTTON = re.compile(r"Proyecto nuevo|Nuevo proyecto|New project|Novo projeto", re.I)
 
 async def _dismiss_fullscreen_viewer(page) -> None:
     """Presiona Escape para cerrar cualquier visor/lightbox que se haya abierto accidentalmente."""
@@ -87,7 +87,7 @@ async def create_project() -> tuple[str, str]:
     await _await_user_dismisses_panel(page)
 
     # La etiqueta cambia según idioma y versión de Flow.
-    new_btn = page.get_by_role("button", name=NEW_PROJECT_BUTTON).first
+    new_btn = page.locator("button.new-project-button").or_(page.get_by_role("button", name=NEW_PROJECT_BUTTON)).first
     await new_btn.wait_for(state="visible", timeout=45_000)
     await new_btn.click()
 

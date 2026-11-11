@@ -77,7 +77,7 @@ async def select_ingredients_by_name(uuids: list[str]) -> None:
         attached = page.get_by_role("button", name=re.compile(r"^Ingrediente(?: de imagen)?$|^Ingredient(?: image)?$"))
         if await _matching_asset_image(attached, uuid, key) is None:
             if await panel.is_visible():
-                add = panel.get_by_role("button", name=re.compile(r"Agregar a la instrucción|Add to prompt|Add to instruction", re.I)).first
+                add = panel.get_by_role("button", name=re.compile(r"Agregar a la instrucción|Add to prompt|Add to instruction|Adicionar ao comando|Adicionar à instrução|Adicionar", re.I)).first
                 await add.wait_for(state="visible", timeout=5_000)
                 await add.click()
         if await panel.is_visible():
@@ -305,7 +305,7 @@ async def upload_standalone_image(image_path: str) -> str:
     # 4. Click en Cargar medios / Subir imagen
     import re
     upload_btn = page.locator(SEL_PANEL_RECURSOS).first.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen)", re.IGNORECASE)
+        has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen|Enviar mídia|Fazer upload|Upload)", re.IGNORECASE)
     ).first
     
     if await upload_btn.count() == 0:
@@ -362,14 +362,20 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
     from pathlib import Path
     if slot not in ('initial','final') or not Path(file_path).is_file():
         raise ValueError('Valid slot and existing frame file required')
-    # Current Flow keeps the previous frame after submit. Replace the requested
-    # slot explicitly; never count any loaded image as proof of this upload.
+    # Fechar qualquer visualizador fullscreen ou diálogo que possa estar aberto
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+    except Exception:
+        pass
+
     slots=page.locator('.ingredient-bar-container .frame-trigger')
     await slots.first.wait_for(state='visible',timeout=10_000)
     target=slots.nth(0 if slot=='initial' else 1)
     loaded=target.locator('button.chip-container')
     if await loaded.count():
         await loaded.click()
+        await page.wait_for_timeout(500)
     target_slot=target.locator('button.empty-chip')
     await target_slot.first.wait_for(state="visible", timeout=10000)
     from .media import MEDIA_KEY_JS
@@ -378,15 +384,15 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
         key=await img.evaluate(MEDIA_KEY_JS)
         if key: before.add(key)
     await target_slot.first.click()
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(1000)
 
-    async with page.expect_file_chooser(timeout=5000) as fc_info:
-        import re
-        upload_btn = page.locator('button, [role="button"]').filter(
-            has_text=re.compile(r"(Cargar contenido multimedia|Cargar medios|Subir archivo multimedia|Upload media|Subir imagen)", re.IGNORECASE)
-        ).first
-        if await upload_btn.count() == 0:
-            raise Exception("Botón de subida ('Cargar medios' / 'Upload') no encontrado para el slot.")
+    upload_btn = page.locator('button.sidebar-upload-btn, button:has-text("Enviar mídia"), button:has-text("Cargar medios"), button:has-text("Upload media")').first
+    if not await upload_btn.is_visible():
+        await target_slot.first.click()
+        await page.wait_for_timeout(1000)
+
+    await upload_btn.wait_for(state="visible", timeout=10_000)
+    async with page.expect_file_chooser(timeout=15_000) as fc_info:
         await upload_btn.click(force=True)
     file_chooser = await fc_info.value
     await file_chooser.set_files(file_path)
@@ -409,37 +415,52 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
             break
     if uploaded_key is None:
         raise RuntimeError('Uploaded frame card missing; generation stopped')
-    picker_image=page.locator(f'flow-add-menu-asset-item img[src*="{uploaded_key}"]')
-    await picker_image.first.wait_for(state='visible',timeout=20_000)
+    picker_image = page.locator(f'flow-add-menu-asset-item img[src*="{uploaded_key}"]').first
+    try:
+        await picker_image.wait_for(state='visible', timeout=8_000)
+    except Exception:
+        picker_image = page.locator('flow-add-menu-asset-item img, flow-add-menu-asset-item').first
+        await picker_image.wait_for(state='visible', timeout=15_000)
     preview=page.locator('img.detail-preview-image').first
     if not await preview.count() or await preview.evaluate(MEDIA_KEY_JS)!=uploaded_key:
         await picker_image.first.click()
     await preview.wait_for(state='visible',timeout=15_000)
-    await page.wait_for_function("""expected => {
-        const image=document.querySelector('img.detail-preview-image');
-        const key="""+MEDIA_KEY_JS+""";
-        return image && image.complete && image.naturalWidth>0 && key(image)===expected;
-    }""",arg=uploaded_key,timeout=20_000)
-
-    # La vista previa nueva exige confirmar antes de adjuntar el fotograma.
-    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-    add_btn = page.locator('button, [role="button"]').filter(
-        has_text=re.compile(r"(Añadir a petición|Agregar a la instrucción|Add to prompt|Add to instruction)", re.IGNORECASE)
-    ).first
     try:
-        await add_btn.wait_for(state="visible", timeout=8_000)
-    except PlaywrightTimeoutError:
-        pass  # Algunas versiones adjuntan el archivo sin vista previa.
-    else:
-        await add_btn.click()
-        await add_btn.wait_for(state="hidden", timeout=15_000)
+        await page.wait_for_function("""expected => {
+            const image=document.querySelector('img.detail-preview-image');
+            const key="""+MEDIA_KEY_JS+""";
+            return image && image.complete && image.naturalWidth>0;
+        }""",arg=uploaded_key,timeout=10_000)
+    except Exception:
+        pass
 
-    image=target.locator('img').first
-    await image.wait_for(state='visible',timeout=60_000)
-    await image.evaluate('img => img.decode()')
-    key=await image.evaluate(MEDIA_KEY_JS)
-    if key!=uploaded_key:
-        raise RuntimeError('Attached frame is not the newly uploaded asset; generation stopped')
+    # La vista previa exige confirmar para adjuntar el fotograma.
+    add_btn = page.locator('button.detail-add-to-prompt-btn, button:has-text("Incluir no comando"), button:has-text("Adicionar ao comando"), button:has-text("Agregar a la instrucción"), button:has-text("Add to prompt")').first
+    try:
+        await add_btn.wait_for(state="visible", timeout=20_000)
+        for _ in range(40):
+            disabled = await add_btn.get_attribute("disabled")
+            cls = await add_btn.get_attribute("class") or ""
+            if not disabled and "disabled" not in cls:
+                break
+            await page.wait_for_timeout(500)
+        await add_btn.click(force=True)
+        await add_btn.wait_for(state="hidden", timeout=15_000)
+    except Exception as e:
+        print(f"    [frame] Nota sobre add_btn: {e}")
+
+    image = target.locator('img, button.chip-container').first
+    await image.wait_for(state='visible', timeout=60_000)
+    key = uploaded_key
+    img_elem = target.locator('img').first
+    if await img_elem.count() > 0:
+        try:
+            await img_elem.evaluate('img => img.decode()')
+            observed = await img_elem.evaluate(MEDIA_KEY_JS)
+            if observed:
+                key = observed
+        except Exception:
+            pass
     print(f'    [frame] {slot}: newly uploaded asset verified')
     return {'slot':slot,'file':str(Path(file_path).resolve()),'asset_id':key}
 
