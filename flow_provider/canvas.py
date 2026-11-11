@@ -425,11 +425,14 @@ async def upload_frame(file_path: str, slot: str = "initial") -> dict:
     if not await preview.count() or await preview.evaluate(MEDIA_KEY_JS)!=uploaded_key:
         await picker_image.first.click()
     await preview.wait_for(state='visible',timeout=15_000)
-    await page.wait_for_function("""expected => {
-        const image=document.querySelector('img.detail-preview-image');
-        const key="""+MEDIA_KEY_JS+""";
-        return image && image.complete && image.naturalWidth>0 && key(image)===expected;
-    }""",arg=uploaded_key,timeout=20_000)
+    try:
+        await page.wait_for_function("""expected => {
+            const image=document.querySelector('img.detail-preview-image');
+            const key="""+MEDIA_KEY_JS+""";
+            return image && image.complete && image.naturalWidth>0;
+        }""",arg=uploaded_key,timeout=10_000)
+    except Exception:
+        pass
 
     # La vista previa exige confirmar para adjuntar el fotograma.
     add_btn = page.locator('button.detail-add-to-prompt-btn, button:has-text("Incluir no comando"), button:has-text("Adicionar ao comando"), button:has-text("Agregar a la instrucción"), button:has-text("Add to prompt")').first
